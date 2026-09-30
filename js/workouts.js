@@ -577,6 +577,7 @@ function saveProgramDraft() {
         name: String(day.name || '').trim() || 'Day',
         exercises: day.exercises.map(function (ex) {
           const reps = ex.reps && typeof ex.reps === 'object' ? ex.reps : { min: ex.reps, max: ex.reps };
+          const restN = parseNum(ex.rest); // 0 is valid (superset partner), so no `|| default` here
           const minR = Math.max(1, Math.round(parseNum(reps.min) || 8));
           const maxR = Math.max(minR, Math.round(parseNum(reps.max) || 12));
           return {
@@ -584,7 +585,7 @@ function saveProgramDraft() {
             name: String(ex.name || '').trim() || 'Exercise',
             sets: Math.max(1, Math.round(parseNum(ex.sets) || 3)),
             reps: { min: minR, max: maxR },
-            rest: Math.max(0, Math.round(parseNum(ex.rest) || 120)),
+            rest: restN != null ? Math.max(0, Math.round(restN)) : 120,
             superset: !!ex.superset
           };
         })

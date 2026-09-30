@@ -1,7 +1,7 @@
 /* FitTrack service worker — precache everything, serve cache-first, work fully offline. */
 'use strict';
 
-const CACHE = 'fittrack-v8';
+const CACHE = 'fittrack-v9';
 const ASSETS = [
   './',
   './index.html',
