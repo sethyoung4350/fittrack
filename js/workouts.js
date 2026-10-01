@@ -109,6 +109,7 @@ function initWorkouts() {
             else ex.reps.max = val;
           } else if (field === 'superset') {
             ex.superset = t.checked;
+            renderWorkouts(); // regroup the superset pairs
           } else {
             ex[field] = t.value;
           }
@@ -408,11 +409,20 @@ function renderWoHome() {
 
     program.days.forEach(function (day) {
       // Tap an exercise to see its history graph (linked across days by name).
-      const preview = day.exercises.map(function (ex) {
-        const reps = repRangeLabel(ex.reps);
-        return '<button class="ex-line' + (ex.superset ? ' ss' : '') + '" data-action="wo-ex-history" data-name="' + esc(ex.name) + '">' +
-          '<span>' + esc(ex.name) + '</span><span class="rx">' + fmt(parseNum(ex.sets)) + ' × ' + reps + '</span></button>';
-      }).join('');
+      const pairs = supersetPairs(day.exercises);
+      const line = function (ex) {
+        return '<button class="ex-line" data-action="wo-ex-history" data-name="' + esc(ex.name) + '">' +
+          '<span>' + esc(ex.name) + '</span><span class="rx">' + fmt(parseNum(ex.sets)) + ' × ' + repRangeLabel(ex.reps) + '</span></button>';
+      };
+      let preview = '';
+      day.exercises.forEach(function (ex, i) {
+        const p = pairs[i];
+        if (p.pos === 1) {
+          preview += '<div class="ss-group"><div class="ss-label">Superset ' + p.n + '</div>' + line(ex) + line(day.exercises[i + 1]) + '</div>';
+        } else if (p.pos === 0) {
+          preview += line(ex);
+        }
+      });
       html += '<div class="card day-card">' +
         '<div class="card-head"><h3>' + esc(day.name) + '</h3><span class="muted small">' + day.exercises.length + (day.exercises.length === 1 ? ' exercise' : ' exercises') + '</span></div>' +
         '<div class="ex-preview">' + (preview || '<span class="muted">No exercises yet</span>') + '</div>' +
@@ -427,6 +437,34 @@ function renderWoHome() {
 
     $('#screen-workouts').innerHTML = html;
   });
+}
+
+/* Supersets are always pairs: consecutive exercises ticked "SS" are paired two at a
+   time, so back-to-back supersets stay separate. A lone ticked exercise is a normal one.
+   Returns one entry per exercise: { n: superset number (1-based) | null, pos: 0 | 1 | 2 }.
+   The pair's rest is the first exercise's rest, taken only after both are done. */
+function supersetPairs(exercises, isSS) {
+  isSS = isSS || function (ex) { return !!ex.superset; };
+  const out = [];
+  let n = 0;
+  for (let i = 0; i < exercises.length; i++) {
+    if (isSS(exercises[i]) && i + 1 < exercises.length && isSS(exercises[i + 1])) {
+      n++;
+      out[i] = { n: n, pos: 1 };
+      out[i + 1] = { n: n, pos: 2 };
+      i++;
+    } else {
+      out[i] = { n: null, pos: 0 };
+    }
+  }
+  return out;
+}
+
+function restText(rest) {
+  const r = parseNum(rest);
+  if (r == null) return '';
+  const m = Math.floor(r / 60), s = Math.round(r % 60);
+  return m + ':' + String(s).padStart(2, '0');
 }
 
 function restLabel(rest) {
@@ -450,12 +488,31 @@ function renderWoSession() {
     html += '<div class="card"><label>Session date<input type="date" id="ws-date" value="' + esc(s.date) + '"></label>' +
       '<p class="muted small mt0">Faint numbers are today’s suggestion: one more rep than last time, or a small weight jump once every set hit the top of the range.</p></div>';
 
+    const pairs = supersetPairs(s.exercises, function (ex) { return !!(ex.presc && ex.presc.superset); });
     s.exercises.forEach(function (ex, exIdx) {
       const last = getLastForExercise(sessions, ex.name, s.id != null ? s.id : null);
       const presc = ex.presc || {};
       const repRange = repRangeLabel(presc.reps);
-      html += '<div class="card"><div class="ex-head"><h4>' + esc(ex.name) + '</h4>' +
-        '<span class="presc">' + fmt(parseNum(presc.sets)) + '× ' + (repRange || '–') + restLabel(presc.rest) + '</span></div>';
+      const p = pairs[exIdx];
+      if (p.pos === 1) {
+        // Banner as you reach the superset: how to run it.
+        const partner = s.exercises[exIdx + 1];
+        const rounds = fmt(parseNum(presc.sets));
+        const rest = restText(presc.rest);
+        html += '<div class="ss-block"><div class="ss-banner"><div class="ss-title">Superset ' + p.n + '</div>' +
+          '<div class="ss-how">Do <b>' + esc(ex.name) + '</b>, then go straight into <b>' + esc(partner.name) + '</b> with no rest' +
+          (rest ? ', then rest ' + rest : '') + '. Repeat for ' + rounds + (rounds === '1' ? ' round' : ' rounds') + '.</div></div>';
+      }
+      html += '<div class="card' + (p.pos ? ' ss-card' : '') + '"><div class="ex-head"><h4>' +
+        (p.pos ? '<span class="ss-pos">' + p.n + (p.pos === 1 ? 'A' : 'B') + '</span>' : '') + esc(ex.name) + '</h4>' +
+        '<span class="presc">' + fmt(parseNum(presc.sets)) + '× ' + (repRange || '–') + (p.pos ? '' : restLabel(presc.rest)) + '</span></div>';
+      if (p.pos === 1) {
+        html += '<div class="ss-step">No rest — straight into ' + esc(s.exercises[exIdx + 1].name) + '</div>';
+      } else if (p.pos === 2) {
+        const prev = s.exercises[exIdx - 1].presc || {};
+        const r = restText(prev.rest);
+        html += '<div class="ss-step">' + (r ? 'Then rest ' + r + ' before the next round' : 'Then rest before the next round') + '</div>';
+      }
       if (last) {
         html += '<div class="last-line">Last (' + esc(niceDate(last.date)) + '): ' + lastSummary(last) + '</div>';
       } else {
@@ -480,6 +537,7 @@ function renderWoSession() {
         '</div>';
       html += '<label class="note-label">Note<input type="text" value="' + esc(ex.note) + '" data-ex="' + exIdx + '" data-field="note" placeholder="e.g. felt strong, seat pos 4"></label>';
       html += '</div>';
+      if (p.pos === 2) html += '</div>'; // close .ss-block
     });
 
     html += '<button class="btn primary block" data-action="wo-save-session">Save session</button>';
@@ -531,13 +589,18 @@ function renderWoEdit() {
     html += '<div class="card">' +
       '<label>Day name<input type="text" value="' + esc(day.name) + '" data-day="' + dayIdx + '" data-field="dayName"></label>' +
       '<div class="edit-ex-head"><span>Exercise</span><span>Sets</span><span>Rep range</span><span>Rest s</span><span>SS</span><span></span></div>';
+    const pairs = supersetPairs(day.exercises);
     day.exercises.forEach(function (ex, exIdx) {
       const reps = ex.reps && typeof ex.reps === 'object' ? ex.reps : { min: ex.reps, max: ex.reps };
-      html += '<div class="edit-ex-row">' +
+      const p = pairs[exIdx];
+      if (p.pos === 1) html += '<div class="ss-tag">Superset ' + p.n + ' · rest is taken after both</div>';
+      html += '<div class="edit-ex-row' + (p.pos ? ' in-ss' : '') + '">' +
         '<input type="text" value="' + esc(ex.name) + '" data-day="' + dayIdx + '" data-ex="' + exIdx + '" data-field="name" aria-label="Exercise name">' +
         '<input type="text" inputmode="numeric" value="' + esc(ex.sets) + '" data-day="' + dayIdx + '" data-ex="' + exIdx + '" data-field="sets" aria-label="Sets" style="max-width:50px">' +
         '<div style="display:flex;gap:4px"><input type="text" inputmode="numeric" value="' + esc(reps.min) + '" data-day="' + dayIdx + '" data-ex="' + exIdx + '" data-field="reps-min" aria-label="Min reps" style="max-width:50px" placeholder="min"><input type="text" inputmode="numeric" value="' + esc(reps.max) + '" data-day="' + dayIdx + '" data-ex="' + exIdx + '" data-field="reps-max" aria-label="Max reps" style="max-width:50px" placeholder="max"></div>' +
-        '<input type="text" inputmode="numeric" value="' + esc(ex.rest) + '" data-day="' + dayIdx + '" data-ex="' + exIdx + '" data-field="rest" aria-label="Rest seconds" style="max-width:60px">' +
+        (p.pos === 2
+          ? '<input type="text" value="" placeholder="—" disabled aria-label="No rest inside a superset" title="No rest between superset exercises">'
+          : '<input type="text" inputmode="numeric" value="' + esc(ex.rest) + '" data-day="' + dayIdx + '" data-ex="' + exIdx + '" data-field="rest" aria-label="Rest seconds" style="max-width:60px">') +
         '<input type="checkbox" ' + (ex.superset ? 'checked' : '') + ' data-day="' + dayIdx + '" data-ex="' + exIdx + '" data-field="superset" aria-label="Superset" style="margin:0">' +
         '<button class="icon-btn" data-action="wo-del-ex" data-day="' + dayIdx + '" data-ex="' + exIdx + '" aria-label="Delete exercise">×</button>' +
         '</div>';
@@ -545,7 +608,7 @@ function renderWoEdit() {
     html += '<div class="row">' +
       '<button class="btn small ghost" data-action="wo-add-ex" data-day="' + dayIdx + '">+ Exercise</button>' +
       '<button class="btn small danger-ghost" data-action="wo-del-day" data-day="' + dayIdx + '">Delete day</button>' +
-      '</div></div>';
+      '</div><p class="muted small">Tick <b>SS</b> on two exercises in a row to make them a superset.</p></div>';
   });
 
   html += '<button class="btn ghost block" data-action="wo-add-day">+ Add day</button>' +
