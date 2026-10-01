@@ -200,8 +200,26 @@ function handleWorkoutAction(action, btn) {
 
 /* ---------- session logging ---------- */
 
+/* Note from the last time this exercise was done on this same program day.
+   Notes don't carry across days, even when the exercise is shared. */
+function lastNoteForDay(sessions, day, name) {
+  const key = exKey(name);
+  const sameDay = function (s) {
+    return s.dayId ? s.dayId === day.id : exKey(s.dayName) === exKey(day.name);
+  };
+  const sorted = sessions.filter(sameDay).sort(function (a, b) {
+    return String(b.date).localeCompare(String(a.date)) || (b.createdAt || 0) - (a.createdAt || 0);
+  });
+  for (const s of sorted) {
+    const ex = (s.exercises || []).find(function (e) { return exKey(e.name) === key; });
+    if (ex) return ex.note || '';
+  }
+  return '';
+}
+
 function startSession(dayId) {
-  return dbGet('program', 'program').then(function (program) {
+  return Promise.all([dbGet('program', 'program'), dbGetAll('sessions')]).then(function (res) {
+    const program = res[0], sessions = res[1];
     const day = program.days.find(function (d) { return d.id === dayId; });
     if (!day) return;
     woSession = {
@@ -214,7 +232,7 @@ function startSession(dayId) {
           name: ex.name,
           presc: { sets: ex.sets, reps: ex.reps, rest: ex.rest, superset: ex.superset },
           sets: Array.from({ length: nSets }, function () { return { weight: '', reps: '' }; }),
-          note: ''
+          note: lastNoteForDay(sessions, day, ex.name)
         };
       })
     };
@@ -283,11 +301,63 @@ function getLastForExercise(sessions, name, excludeId) {
     if (excludeId != null && s.id === excludeId) continue;
     for (const ex of (s.exercises || [])) {
       if (exKey(ex.name) !== target) continue;
-      const logged = (ex.sets || []).filter(function (st) { return st.weight != null || st.rir != null; });
+      const logged = (ex.sets || []).filter(function (st) { return st.weight != null || st.reps != null; });
       if (logged.length) return { date: s.date, sets: ex.sets, note: ex.note || '' };
     }
   }
   return null;
+}
+
+/* ---------- today's suggested weight × reps (the faint placeholders) ----------
+   Double progression within the prescribed rep range:
+   - every set last time reached the top of the range → add one small weight step and
+     restart at the bottom of the range, but only if Epley's estimated 1RM says the
+     bottom of the range is still doable at the heavier weight;
+   - otherwise keep each set's weight and aim for one more rep (capped at the top;
+     a set that fell short of the bottom aims for the bottom). If the next weight step
+     is too big a jump (e.g. 18 → 20 kg dumbbells), allow up to 2 reps past the top
+     until the estimated 1RM makes the jump doable. */
+
+function e1rm(w, r) { return w * (1 + r / 30); }                    // Epley
+function repsAtWeight(oneRm, w) { return 30 * (oneRm / w - 1); }   // Epley, solved for reps
+
+/* Smallest sensible jump: dumbbells/cables move ~1–2 kg, barbells/machines 2.5 kg, heavy lifts 5 kg. */
+function weightStep(w) { return w < 10 ? 1 : w < 30 ? 2 : w < 100 ? 2.5 : 5; }
+
+function roundTo(v, step) { return Math.round(v / step) * step; }
+
+/* Returns [{weight, reps}] per set (either may be null = no suggestion). */
+function suggestSets(last, presc, nSets) {
+  const out = [];
+  const range = presc && presc.reps && typeof presc.reps === 'object' ? presc.reps : null;
+  const lo = range ? parseNum(range.min) : null, hi = range ? parseNum(range.max) : null;
+  const done = last ? last.sets.filter(function (st) { return st.weight != null || st.reps != null; }) : [];
+  if (!done.length) {
+    for (let i = 0; i < nSets; i++) out.push({ weight: null, reps: hi != null ? hi : null });
+    return out;
+  }
+  const loaded = done.filter(function (st) { return st.weight > 0 && st.reps > 0; });
+  const allAtTop = hi != null && done.every(function (st) { return st.reps != null && st.reps >= hi; });
+
+  let bump = null; // new weight for every set, when progressing load
+  let cap = hi;
+  if (allAtTop && loaded.length) {
+    const top = Math.max.apply(null, loaded.map(function (st) { return st.weight; }));
+    const best = Math.max.apply(null, loaded.map(function (st) { return e1rm(st.weight, st.reps); }));
+    const next = roundTo(top + weightStep(top), 0.5);
+    if (lo == null || repsAtWeight(best, next) >= lo - 0.5) bump = next;
+    else cap = hi + 2;
+  }
+
+  for (let i = 0; i < nSets; i++) {
+    const prev = done[Math.min(i, done.length - 1)];
+    if (bump != null) { out.push({ weight: bump, reps: lo }); continue; }
+    let reps = prev.reps != null ? prev.reps + 1 : null;
+    if (reps != null && cap != null) reps = Math.min(reps, cap);
+    if (reps != null && lo != null && prev.reps < lo) reps = lo;
+    out.push({ weight: prev.weight, reps: reps });
+  }
+  return out;
 }
 
 function lastSummary(last) {
@@ -377,7 +447,8 @@ function renderWoSession() {
     const s = woSession;
     let html = '<div class="screen-subhead"><h3>' + esc(s.dayName || 'Session') + '</h3>' +
       '<button class="btn small ghost" data-action="wo-cancel-session">Cancel</button></div>';
-    html += '<div class="card"><label>Session date<input type="date" id="ws-date" value="' + esc(s.date) + '"></label></div>';
+    html += '<div class="card"><label>Session date<input type="date" id="ws-date" value="' + esc(s.date) + '"></label>' +
+      '<p class="muted small mt0">Faint numbers are today’s suggestion: one more rep than last time, or a small weight jump once every set hit the top of the range.</p></div>';
 
     s.exercises.forEach(function (ex, exIdx) {
       const last = getLastForExercise(sessions, ex.name, s.id != null ? s.id : null);
@@ -390,10 +461,11 @@ function renderWoSession() {
       } else {
         html += '<div class="last-line none">No previous data — first time logging this.</div>';
       }
+      const sugg = suggestSets(last, presc, ex.sets.length);
       ex.sets.forEach(function (st, setIdx) {
-        const lastSet = last && last.sets[setIdx] ? last.sets[setIdx] : null;
-        const wPh = lastSet && lastSet.weight != null ? fmt(lastSet.weight, 1) : 'kg';
-        const rPh = lastSet && lastSet.reps != null ? fmt(lastSet.reps, 0) : 'reps';
+        const sg = sugg[setIdx] || {};
+        const wPh = sg.weight != null ? fmt(sg.weight, 1) : 'kg';
+        const rPh = sg.reps != null ? fmt(sg.reps, 0) : 'reps';
         const filled = parseNum(st.weight) != null && parseNum(st.reps) != null;
         html += '<div class="set-row' + (filled ? ' filled' : '') + '">' +
           '<span class="set-num">' + (setIdx + 1) + '</span>' +
