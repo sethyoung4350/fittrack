@@ -19,7 +19,7 @@ function initSettings() {
       toast('Goal saved');
       renderSettings();
     } else if (action === 'st-export') {
-      exportData();
+      exportData().then(function (ok) { if (ok) renderSettings(); });
     } else if (action === 'st-import') {
       const input = $('#st-import-file');
       if (input) input.click();
@@ -92,20 +92,79 @@ function collectExportPayload() {
   });
 }
 
+/* ---------- backups: share sheet + 7-day reminder ----------
+   iPhone web apps can't save files without a tap, so the app prepares the backup
+   ahead of time and one tap hands it to the share sheet (Save to Files, Mail, …). */
+
+const BACKUP_EVERY_DAYS = 7;
+let _preparedBackup = null; // Promise<File>, built before the tap so the share sheet opens instantly
+
+function lastBackupAt() { return Number(localStorage.getItem('fittrack.lastBackup')) || null; }
+
+function backupDue() {
+  const snooze = Number(localStorage.getItem('fittrack.backupSnooze')) || 0;
+  if (Date.now() < snooze) return false;
+  const last = lastBackupAt();
+  return !last || Date.now() - last >= BACKUP_EVERY_DAYS * 86400000;
+}
+
+function snoozeBackup() { localStorage.setItem('fittrack.backupSnooze', String(Date.now() + 86400000)); }
+
+function lastBackupText() {
+  const last = lastBackupAt();
+  if (!last) return 'Never backed up';
+  const days = Math.floor((Date.now() - last) / 86400000);
+  return 'Last backup ' + (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago');
+}
+
+function prepareBackup() {
+  _preparedBackup = collectExportPayload().then(function (payload) {
+    return new File([JSON.stringify(payload)], 'fittrack-backup-' + todayStr() + '.json', { type: 'application/json' });
+  });
+  _preparedBackup.catch(function (err) { console.error(err); _preparedBackup = null; });
+  return _preparedBackup;
+}
+
+function markBackedUp() {
+  localStorage.setItem('fittrack.lastBackup', String(Date.now()));
+  localStorage.removeItem('fittrack.backupSnooze');
+}
+
+function downloadFile(file) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+}
+
+/* Share sheet where supported (iPhone), plain download otherwise. Resolves true once backed up. */
 function exportData() {
-  collectExportPayload().then(function (payload) {
-    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'fittrack-backup-' + todayStr() + '.json';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+  return (_preparedBackup || prepareBackup()).then(function (file) {
+    _preparedBackup = null;
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      return navigator.share({ files: [file], title: 'FitTrack backup' }).then(function () {
+        markBackedUp();
+        toast('Backup saved');
+        return true;
+      }).catch(function (err) {
+        if (err && err.name === 'AbortError') return false; // closed the sheet
+        downloadFile(file);
+        markBackedUp();
+        toast('Backup downloaded');
+        return true;
+      });
+    }
+    downloadFile(file);
+    markBackedUp();
     toast('Backup downloaded');
+    return true;
   }).catch(function (err) {
     console.error(err);
-    toast('Export failed: ' + err.message);
+    toast('Backup failed: ' + err.message);
+    return false;
   });
 }
 
@@ -143,6 +202,9 @@ function importFromFile(file) {
       .then(function (ok) {
         if (!ok) return;
         applyImportPayload(payload).then(function () {
+          // The file just imported is itself a backup, so count it as one.
+          const at = Date.parse(payload.exportedAt);
+          if (at) localStorage.setItem('fittrack.lastBackup', String(Math.min(at, Date.now())));
           toast('Backup restored');
           renderSettings();
         }).catch(function (err) {
@@ -173,7 +235,8 @@ function renderSettings() {
     '<p class="muted small">Shown as a dashed line on your weight graph. Leave blank for none.</p></section>';
 
   html += '<section class="card"><div class="card-head"><h2>Backup</h2></div>' +
-    '<p class="muted small">Your data lives only on this device. Export a backup now and then and keep it somewhere safe.</p>' +
+    '<p class="muted small">Your data lives only on this device. FitTrack reminds you to back up every ' + BACKUP_EVERY_DAYS + ' days — save the file to Files or iCloud Drive.</p>' +
+    '<p class="small"><b>' + esc(lastBackupText()) + '</b></p>' +
     '<div class="row">' +
     '<button class="btn primary" data-action="st-export">Export</button>' +
     '<button class="btn" data-action="st-import">Import</button>' +
@@ -184,5 +247,6 @@ function renderSettings() {
   html += '<p class="muted small center">FitTrack · works offline · data stays on this device</p>';
 
   $('#screen-settings').innerHTML = html;
+  prepareBackup();
   return Promise.resolve();
 }

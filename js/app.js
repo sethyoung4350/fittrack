@@ -185,6 +185,9 @@ document.addEventListener('DOMContentLoaded', function () {
       showScreen('today');
     });
 
+  // Ask the browser not to evict our storage under pressure (granted silently where supported).
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+
   // Service workers need http(s); opening index.html via file:// still runs the app fine.
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(function (err) {

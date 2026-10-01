@@ -17,6 +17,11 @@ function initToday() {
     } else if (action === 'tw-open') {
       twOpen = true;
       renderToday().then(function () { const input = $('#tw-input'); if (input) input.focus(); });
+    } else if (action === 'bk-now') {
+      exportData().then(function (ok) { if (ok) renderToday(); });
+    } else if (action === 'bk-later') {
+      snoozeBackup();
+      renderToday();
     } else if (action === 'tw-start') {
       startSession(btn.getAttribute('data-day-id')).then(function () { showScreen('workouts'); });
     }
@@ -82,6 +87,15 @@ function renderToday() {
 
     let html = '';
 
+    // Backup reminder (every BACKUP_EVERY_DAYS days, snoozable for a day)
+    const showBackup = (res[0].length || sessions.length) && backupDue();
+    if (showBackup) {
+      html += '<section class="card notice"><div class="card-head"><h2>Time to back up</h2></div>' +
+        '<p class="small muted">' + esc(lastBackupText()) + '. Save a copy to Files or iCloud Drive so nothing is lost if this app is removed.</p>' +
+        '<div class="row"><button class="btn" data-action="bk-later">Later</button>' +
+        '<button class="btn primary" data-action="bk-now">Back up now</button></div></section>';
+    }
+
     // Weight
     html += '<section class="card">';
     html += '<div class="card-head"><h2>Weight</h2>' +
@@ -131,6 +145,7 @@ function renderToday() {
     html += '</section>';
 
     $('#screen-today').innerHTML = html;
+    if (showBackup) prepareBackup();
     if (series.length) {
       mountLineChart($('#today-weight-chart'), series, {
         unit: 'kg', dp: 1, ranges: true, range: twRange, label: 'Body weight over time',

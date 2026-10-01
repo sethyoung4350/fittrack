@@ -97,6 +97,8 @@ main {
   padding: 18px;
   margin-bottom: 12px;
 }
+.card.notice { border-color: var(--accent); background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface); }
+.card.notice h2 { color: var(--text); }
 .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .card-head h2, .card-head h3 { margin: 0; }
 .card h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--muted); letter-spacing: -0.005em; }
