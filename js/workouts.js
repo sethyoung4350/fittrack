@@ -56,6 +56,66 @@ function defaultProgram() {
 function ensureProgram() {
   return dbGet('program', 'program').then(function (p) {
     if (!p || !Array.isArray(p.days)) return dbPut('program', defaultProgram());
+  }).then(applyProgramUpdates);
+}
+
+/* One-off program changes requested by the user, applied on the phone the next time
+   the app opens. Each runs once, and only when the program still has the old layout,
+   so it never touches a program that has already moved on. Day ids are kept so
+   per-day notes and "up next" keep working. */
+const PROGRAM_UPDATES = [
+  {
+    id: '2026-10-new-upper-day',
+    applies: function (p) {
+      return p.days.some(function (d) { return exKey(d.name) === 'day 5 (lower)'; }) &&
+        p.days.some(function (d) { return exKey(d.name) === 'day 6 (upper)'; });
+    },
+    run: function (p) {
+      function ex(name, sets, min, max, rest, ss) {
+        return { id: uid(), name: name, sets: sets, reps: { min: min, max: max }, rest: rest, superset: !!ss };
+      }
+      const lower = p.days.find(function (d) { return exKey(d.name) === 'day 5 (lower)'; });
+      const oldUpper = p.days.find(function (d) { return exKey(d.name) === 'day 6 (upper)'; });
+      const upper = {
+        id: oldUpper.id,
+        name: 'Day 5 (Upper)',
+        exercises: [
+          ex('Med Ball Slams', 3, 3, 3, 90),
+          ex('Standing OHP', 3, 3, 5, 180),
+          ex('Weighted Pull-Ups', 3, 3, 5, 180),
+          ex('Weighted Dips', 3, 4, 6, 120),
+          ex('Seal Row', 3, 6, 8, 120),
+          ex("Farmer's Walk (30 m)", 3, 30, 30, 90),
+          ex('Face Pulls', 2, 12, 15, 60, true),
+          ex('Cable Woodchops (each side)', 2, 8, 10, 0, true),
+          ex('Stair Master (15 min)', 1, 15, 15, 0)
+        ]
+      };
+      lower.name = 'Day 6 (Lower)';
+      const others = p.days.filter(function (d) { return d !== lower && d !== oldUpper; });
+      p.days = others.concat([upper, lower]);
+      return p;
+    }
+  }
+];
+
+function applyProgramUpdates() {
+  let done;
+  try { done = JSON.parse(localStorage.getItem('fittrack.programUpdates') || '[]'); } catch (e) { done = []; }
+  return dbGet('program', 'program').then(function (p) {
+    if (!p || !Array.isArray(p.days)) return;
+    let changed = false;
+    PROGRAM_UPDATES.forEach(function (u) {
+      if (done.indexOf(u.id) !== -1 || !u.applies(p)) return;
+      p = u.run(p);
+      done.push(u.id);
+      changed = true;
+    });
+    if (!changed) return;
+    return dbPut('program', p).then(function () {
+      localStorage.setItem('fittrack.programUpdates', JSON.stringify(done));
+      setTimeout(function () { toast('Program updated: new Day 5 (Upper)'); }, 600);
+    });
   });
 }
 
