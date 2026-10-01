@@ -1,14 +1,5 @@
-/* FitTrack — Settings: daily targets, backup (export/import), erase. */
+/* FitTrack — Settings: goal weight, backup (export/import), erase. */
 'use strict';
-
-const TARGET_FIELDS = [
-  { key: 'calories', label: 'Calories (kcal)' },
-  { key: 'protein', label: 'Protein (g)' },
-  { key: 'carbs', label: 'Carbs (g)' },
-  { key: 'fat', label: 'Fat (g)' },
-  { key: 'fibre', label: 'Fibre (g)' },
-  { key: 'steps', label: 'Steps' }
-];
 
 function initSettings() {
   Screens.settings = renderSettings;
@@ -19,17 +10,13 @@ function initSettings() {
     if (!btn) return;
     const action = btn.getAttribute('data-action');
 
-    if (action === 'st-save-targets') {
-      const t = {};
-      TARGET_FIELDS.forEach(function (f) {
-        const v = parseNum($('#st-' + f.key).value);
-        t[f.key] = v != null && v >= 0 ? v : DEFAULT_TARGETS[f.key];
-      });
-      // Goal weight is optional: blank or invalid clears it rather than falling back to a default.
+    if (action === 'st-save-goal') {
+      // Goal weight is optional: blank or invalid clears it.
+      const t = getTargets();
       const gw = parseNum($('#st-goalWeight').value);
       t.goalWeight = gw != null && gw > 0 ? gw : null;
       saveTargets(t);
-      toast('Targets saved');
+      toast('Goal saved');
       renderSettings();
     } else if (action === 'st-export') {
       exportData();
@@ -37,7 +24,7 @@ function initSettings() {
       const input = $('#st-import-file');
       if (input) input.click();
     } else if (action === 'st-erase') {
-      appConfirm('Erase ALL data on this device (entries, workouts, notes, photos, targets)? Export a backup first if you want to keep anything.', { danger: true, okLabel: 'Erase everything' })
+      appConfirm('Erase ALL data on this device (weights, workouts, notes, photos, goal)? Export a backup first if you want to keep anything.', { danger: true, okLabel: 'Erase everything' })
         .then(function (ok) {
           if (!ok) return;
           eraseAllData().then(function () {
@@ -139,7 +126,7 @@ function applyImportPayload(payload) {
     writes.push(payload.program && Array.isArray(payload.program.days)
       ? dbPut('program', Object.assign({}, payload.program, { id: 'program' }))
       : dbPut('program', defaultProgram()));
-    if (payload.targets) saveTargets(Object.assign({}, DEFAULT_TARGETS, payload.targets));
+    if (payload.targets) saveTargets(payload.targets);
     return Promise.all(writes);
   });
 }
@@ -149,7 +136,7 @@ function importFromFile(file) {
     let payload;
     try { payload = JSON.parse(text); } catch (e) { toast('Not a valid backup file'); return; }
     if (!payload || payload.app !== 'FitTrack') { toast('Not a FitTrack backup file'); return; }
-    const counts = (payload.nutrition || []).length + ' nutrition entries, ' +
+    const counts = (payload.nutrition || []).filter(function (e) { return e && e.weight != null; }).length + ' weigh-ins, ' +
       (payload.sessions || []).length + ' workouts, ' +
       (payload.notes || []).length + ' notes, ' + (payload.photos || []).length + ' photos';
     appConfirm('Import backup from ' + (payload.exportedAt || 'unknown date').slice(0, 10) + ' (' + counts + ')? This REPLACES all current data on this device.', { danger: true, okLabel: 'Import & replace' })
@@ -179,28 +166,22 @@ function eraseAllData() {
 
 function renderSettings() {
   const t = getTargets();
-  let html = '<div class="card"><h2>Daily targets</h2><div class="grid2">';
-  TARGET_FIELDS.forEach(function (f) {
-    html += '<label>' + esc(f.label) +
-      '<input type="text" inputmode="numeric" id="st-' + f.key + '" value="' + esc(t[f.key]) + '"></label>';
-  });
-  html += '<label>Goal weight (kg) — optional' +
-    '<input type="text" inputmode="decimal" id="st-goalWeight" placeholder="none" value="' +
-    (parseNum(t.goalWeight) != null ? esc(t.goalWeight) : '') + '"></label>';
-  html += '</div><button class="btn primary block" data-action="st-save-targets">Save targets</button></div>';
+  let html = '<section class="card"><div class="card-head"><h2>Goal weight</h2></div>' +
+    '<div class="quicklog"><input type="text" inputmode="decimal" id="st-goalWeight" aria-label="Goal weight in kg" placeholder="Optional, kg" value="' +
+    (parseNum(t.goalWeight) != null ? esc(t.goalWeight) : '') + '">' +
+    '<button class="btn primary" data-action="st-save-goal">Save</button></div>' +
+    '<p class="muted small">Shown as a dashed line on your weight graph. Leave blank for none.</p></section>';
 
-  html += '<div class="card"><h2>Backup &amp; restore</h2>' +
-    '<p class="small-text muted mt0">All data lives ONLY on this device. Export a backup regularly and keep it somewhere safe (Files, iCloud, email to yourself).</p>' +
+  html += '<section class="card"><div class="card-head"><h2>Backup</h2></div>' +
+    '<p class="muted small">Your data lives only on this device. Export a backup now and then and keep it somewhere safe.</p>' +
     '<div class="row">' +
-    '<button class="btn primary" data-action="st-export">Export backup</button>' +
-    '<button class="btn ghost" data-action="st-import">Import backup</button>' +
+    '<button class="btn primary" data-action="st-export">Export</button>' +
+    '<button class="btn" data-action="st-import">Import</button>' +
     '</div>' +
-    '<input type="file" id="st-import-file" accept=".json,application/json" hidden></div>';
+    '<input type="file" id="st-import-file" accept=".json,application/json" hidden></section>';
 
-  html += '<div class="card"><h2>Danger zone</h2>' +
-    '<button class="btn danger-ghost block" data-action="st-erase">Erase all data</button></div>';
-
-  html += '<p class="muted small-text" style="text-align:center">FitTrack · offline personal tracker · data never leaves this device</p>';
+  html += '<section class="card"><button class="btn danger-ghost block" data-action="st-erase">Erase all data</button></section>';
+  html += '<p class="muted small center">FitTrack · works offline · data stays on this device</p>';
 
   $('#screen-settings').innerHTML = html;
   return Promise.resolve();

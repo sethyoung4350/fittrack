@@ -1,7 +1,7 @@
 /* FitTrack service worker — precache everything, serve cache-first, work fully offline. */
 'use strict';
 
-const CACHE = 'fittrack-v9';
+const CACHE = 'fittrack-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,7 @@ const ASSETS = [
   './css/style.css',
   './js/db.js',
   './js/app.js',
-  './js/nutrition.js',
+  './js/charts.js',
   './js/workouts.js',
   './js/progress.js',
   './js/today.js',

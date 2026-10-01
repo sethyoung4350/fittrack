@@ -201,7 +201,7 @@ function handleWorkoutAction(action, btn) {
 /* ---------- session logging ---------- */
 
 function startSession(dayId) {
-  dbGet('program', 'program').then(function (program) {
+  return dbGet('program', 'program').then(function (program) {
     const day = program.days.find(function (d) { return d.id === dayId; });
     if (!day) return;
     woSession = {
@@ -219,7 +219,7 @@ function startSession(dayId) {
       })
     };
     woView = 'session';
-    renderWorkouts();
+    return renderWorkouts();
   });
 }
 
@@ -275,14 +275,14 @@ function saveSession() {
 /* Most recent stored session (before/excluding the one being edited) containing
    this exercise with at least one logged set. Matched by name, case-insensitive. */
 function getLastForExercise(sessions, name, excludeId) {
-  const target = String(name || '').trim().toLowerCase();
+  const target = exKey(name);
   const sorted = sessions.slice().sort(function (a, b) {
     return String(b.date).localeCompare(String(a.date)) || (b.createdAt || 0) - (a.createdAt || 0);
   });
   for (const s of sorted) {
     if (excludeId != null && s.id === excludeId) continue;
     for (const ex of (s.exercises || [])) {
-      if (String(ex.name || '').trim().toLowerCase() !== target) continue;
+      if (exKey(ex.name) !== target) continue;
       const logged = (ex.sets || []).filter(function (st) { return st.weight != null || st.rir != null; });
       if (logged.length) return { date: s.date, sets: ex.sets, note: ex.note || '' };
     }
@@ -300,55 +300,13 @@ function lastSummary(last) {
     .join(' · ');
 }
 
+/* History sheet for one exercise: graph + every logged session. Same-name exercises are linked (case-insensitive). */
 function showExerciseHistory(name) {
-  dbGet('program', 'program').then(function (program) {
-    return dbGetAll('sessions').then(function (sessions) {
-      const target = String(name || '').trim().toLowerCase();
-      const rows = [];
-      let allData = [];
-      let repRange = null;
-
-      // Find rep range from program
-      if (program && program.days) {
-        for (const day of program.days) {
-          for (const ex of (day.exercises || [])) {
-            if (String(ex.name || '').trim().toLowerCase() === target) {
-              repRange = ex.reps;
-              break;
-            }
-          }
-          if (repRange) break;
-        }
-      }
-
-      sessions.sort(function (a, b) {
-        return String(b.date).localeCompare(String(a.date)) || (b.createdAt || 0) - (a.createdAt || 0);
-      });
-
-      sessions.forEach(function (s) {
-        (s.exercises || []).forEach(function (ex) {
-          if (String(ex.name || '').trim().toLowerCase() !== target) return;
-          const summary = lastSummary({ sets: ex.sets || [] });
-          if (!summary && !ex.note) return;
-          (ex.sets || []).forEach(function (st) {
-            if (st.weight != null) allData.push(st);
-          });
-          rows.push('<div class="card" style="margin-bottom:8px"><strong>' + esc(niceDate(s.date)) + '</strong>' +
-            '<div class="small-text" style="margin-top:4px">' + (summary || '<span class="muted">No sets logged</span>') + '</div>' +
-            (ex.note ? '<div class="entry-note">' + esc(ex.note) + '</div>' : '') + '</div>');
-        });
-      });
-
-      let html = '<h3>' + esc(name) + '</h3>';
-      if (repRange) {
-        html += '<div style="background:#f5f5f5;padding:8px;border-radius:4px;margin:10px 0;font-size:14px"><strong>Target:</strong> ' +
-          repRange.min + '–' + repRange.max + ' reps</div>';
-      }
-      html += createWeightChart(allData);
-      html += (rows.length ? rows.join('') : '<p class="muted">No history for this exercise yet.</p>');
-
-      openModal(html);
-    });
+  dbGetAll('sessions').then(function (sessions) {
+    const key = exKey(name);
+    openModal('<h3>' + esc(name) + '</h3><div id="ex-hist-chart"></div>' +
+      '<h3 class="sub-h">All sessions</h3>' + exerciseLogHtml(sessions, key));
+    mountExerciseChart($('#ex-hist-chart'), sessions, key, { metric: prExMetric, range: 'all' });
   });
 }
 
@@ -370,7 +328,7 @@ function renderWoHome() {
 
     let html = '';
     if (todaySessions.length) {
-      html += '<div class="card"><h2>Today</h2><p class="mt0">✅ Logged: ' +
+      html += '<div class="card"><div class="card-head"><h2>Today</h2></div><p class="lead">Done: ' +
         todaySessions.map(function (s) { return esc(s.dayName || 'Session'); }).join(', ') + '</p></div>';
     }
 
@@ -379,13 +337,14 @@ function renderWoHome() {
     }
 
     program.days.forEach(function (day) {
+      // Tap an exercise to see its history graph (linked across days by name).
       const preview = day.exercises.map(function (ex) {
         const reps = repRangeLabel(ex.reps);
-        return esc(ex.name) + ' <span class="rx">' + fmt(parseNum(ex.sets)) + '×' + reps + '</span>';
-      }).join('<br>');
+        return '<button class="ex-line' + (ex.superset ? ' ss' : '') + '" data-action="wo-ex-history" data-name="' + esc(ex.name) + '">' +
+          '<span>' + esc(ex.name) + '</span><span class="rx">' + fmt(parseNum(ex.sets)) + ' × ' + reps + '</span></button>';
+      }).join('');
       html += '<div class="card day-card">' +
-        '<div class="day-meta">' + day.exercises.length + (day.exercises.length === 1 ? ' exercise' : ' exercises') + '</div>' +
-        '<h3>' + esc(day.name) + '</h3>' +
+        '<div class="card-head"><h3>' + esc(day.name) + '</h3><span class="muted small">' + day.exercises.length + (day.exercises.length === 1 ? ' exercise' : ' exercises') + '</span></div>' +
         '<div class="ex-preview">' + (preview || '<span class="muted">No exercises yet</span>') + '</div>' +
         '<button class="btn primary block" data-action="wo-start" data-day-id="' + esc(day.id) + '">Start session</button>' +
         '</div>';
@@ -447,53 +406,13 @@ function renderWoSession() {
         '<button class="btn small ghost" data-action="wo-add-set" data-ex="' + exIdx + '">+ Add set</button>' +
         '<button class="btn small ghost" data-action="wo-ex-history" data-name="' + esc(ex.name) + '">History</button>' +
         '</div>';
-      html += '<label style="margin-top:10px">Note<input type="text" value="' + esc(ex.note) + '" data-ex="' + exIdx + '" data-field="note" placeholder="e.g. felt strong, seat pos 4"></label>';
+      html += '<label class="note-label">Note<input type="text" value="' + esc(ex.note) + '" data-ex="' + exIdx + '" data-field="note" placeholder="e.g. felt strong, seat pos 4"></label>';
       html += '</div>';
     });
 
     html += '<button class="btn primary block" data-action="wo-save-session">Save session</button>';
     $('#screen-workouts').innerHTML = html;
   });
-}
-
-/* Generate a simple SVG line chart for exercise weight progression. */
-function createWeightChart(data) {
-  if (!data || data.length < 2) return '';
-
-  const points = data.filter(d => d.weight != null).slice(-30); // Last 30 entries
-  if (points.length < 2) return '';
-
-  const minW = Math.min.apply(null, points.map(d => d.weight)) * 0.9;
-  const maxW = Math.max.apply(null, points.map(d => d.weight)) * 1.1;
-  const range = maxW - minW || 1;
-
-  const width = 280, height = 140, px = 30, py = 20;
-  const graphW = width - px * 2, graphH = height - py * 2;
-
-  let pathData = '';
-  points.forEach(function (p, i) {
-    const x = px + (i / (points.length - 1)) * graphW;
-    const y = height - py - ((p.weight - minW) / range) * graphH;
-    pathData += (i === 0 ? 'M' : 'L') + x + ' ' + y;
-  });
-
-  let svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" style="width:100%;max-width:300px;height:auto;border:1px solid #ccc;border-radius:4px;margin:10px 0">' +
-    '<path d="' + pathData + '" stroke="#4a9eff" stroke-width="2" fill="none"/>';
-
-  // Add points
-  points.forEach(function (p, i) {
-    const x = px + (i / (points.length - 1)) * graphW;
-    const y = height - py - ((p.weight - minW) / range) * graphH;
-    svg += '<circle cx="' + x + '" cy="' + y + '" r="2" fill="#4a9eff"/>';
-  });
-
-  // Add grid and labels
-  svg += '<line x1="' + px + '" y1="' + (height - py) + '" x2="' + (width - px) + '" y2="' + (height - py) + '" stroke="#ddd" stroke-width="1"/>';
-  svg += '<text x="' + (px - 5) + '" y="' + (height - py + 4) + '" font-size="10" text-anchor="end" fill="#999">' + fmt(minW, 1) + '</text>';
-  svg += '<text x="' + (px - 5) + '" y="' + (py + 10) + '" font-size="10" text-anchor="end" fill="#999">' + fmt(maxW, 1) + '</text>';
-  svg += '</svg>';
-
-  return svg;
 }
 
 function renderWoHistory() {
@@ -512,7 +431,7 @@ function renderWoHistory() {
       visible.forEach(function (s) {
         const exLines = (s.exercises || []).map(function (ex) {
           const summary = lastSummary({ sets: ex.sets || [] });
-          return '<div class="small-text" style="margin-top:4px"><b>' + esc(ex.name) + '</b>' +
+          return '<div class="small hist-line"><b>' + esc(ex.name) + '</b>' +
             (summary ? ' — ' + summary : ' — <span class="muted">no sets</span>') +
             (ex.note ? '<div class="muted">' + esc(ex.note) + '</div>' : '') + '</div>';
         }).join('');

@@ -1,6 +1,6 @@
 # FitTrack
 
-A personal fitness & nutrition tracker that runs entirely on your device. No accounts, no internet needed, no app store. Plain HTML/CSS/JavaScript — nothing to install or build.
+A personal training & body-weight tracker that runs entirely on your device. No accounts, no internet needed, no app store. Plain HTML/CSS/JavaScript — nothing to install or build.
 
 > ⚠️ **Your data lives ONLY on your device** (in the browser's storage). Nobody else can see it — but if you delete the app from your home screen, clear Safari website data, or lose the phone, the data is gone. **Use Settings → Export backup regularly** and keep the file somewhere safe (iCloud Files, email it to yourself, etc.).
 
@@ -40,15 +40,14 @@ The app needs to be reachable from your iPhone over HTTP(S) **once**, to install
 
 ## Using the app
 
-- **Today** — dashboard: weight, today's nutrition vs targets, workout status, 7-day snapshot.
-- **Nutrition** — tap **+ Log entry** to record fasted weight, macros, calories, fibre, steps, sleep, fluid and a note. The top shows today vs your targets and 7-day rolling averages.
-- **Workouts** — your 4-day program. Tap **Start session** on a day, enter weight and RIR per set (last session's numbers are shown so you know what to beat), add notes, save. **Edit program** lets you rename/add/delete exercises and days and change sets/reps/rest.
-- **Progress** — weight and calorie charts, progress photos (front/side/back), and dated notes.
-- **Settings** — daily targets, backup, and erase.
+- **Today** — log today's weight, an interactive weight graph (drag across it to read any day; 1M/3M/6M/All), and your next or completed workout.
+- **Workouts** — your program. Tap **Start session** on a day and enter weight and reps per set (last session's numbers are shown so you know what to beat). Tap any exercise to see its history graph. **Edit program** changes exercises, sets, reps, rest and supersets.
+- **Progress** — weight graph and full weight log (add past days, delete mistakes), per-exercise graphs (top set, estimated 1RM, volume or reps), photos and notes. Exercises with the same name are linked, ignoring capitals and extra spaces.
+- **Settings** — goal weight, backup and erase.
 
 ## Backup & Restore
 
-- **Export backup** (Settings) downloads a single `fittrack-backup-YYYY-MM-DD.json` file containing *everything* — entries, workouts, program, notes, photos, targets. On iPhone it saves to Files.
+- **Export backup** (Settings) downloads a single `fittrack-backup-YYYY-MM-DD.json` file containing *everything* — weights, workouts, program, notes, photos, goal weight. On iPhone it saves to Files.
 - **Import backup** picks a backup file and **replaces** all current data with it (it asks for confirmation first).
 - Do an export after any week you'd be sad to lose.
 
@@ -58,8 +57,8 @@ The app needs to be reachable from your iPhone over HTTP(S) **once**, to install
 index.html      app shell
 manifest.json   PWA manifest (installable app)
 sw.js           service worker (offline caching)
-css/style.css   styling (dark theme)
-js/             db.js (IndexedDB), app.js (shell), nutrition.js, workouts.js,
+css/style.css   styling (light & dark)
+js/             db.js (IndexedDB), app.js (shell), charts.js, workouts.js,
                 progress.js, today.js, settings.js
-icons/          app icons (FT)
+icons/          app icons
 ```
