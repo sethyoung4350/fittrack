@@ -24,6 +24,8 @@ function initToday() {
       renderToday();
     } else if (action === 'tw-start') {
       startSession(btn.getAttribute('data-day-id')).then(function () { showScreen('workouts'); });
+    } else if (action === 'tw-continue') {
+      continueTodaySession(Number(btn.getAttribute('data-id'))).then(function (ok) { if (ok) showScreen('workouts'); });
     }
   });
   $('#screen-today').addEventListener('keydown', function (e) {
@@ -128,10 +130,12 @@ function renderToday() {
     // Workout
     const todaySessions = sessions.filter(function (s) { return s.date === today; });
     html += '<section class="card"><div class="card-head"><h2>Workout</h2></div>';
-    if (todaySessions.length) {
-      html += '<p class="lead">Done today</p><p class="muted small">' +
-        todaySessions.map(function (s) { return esc(s.dayName || 'Session'); }).join(', ') + '</p>' +
-        '<button class="btn block" data-goto="workouts">Open workouts</button>';
+    if (sessionInProgress()) {
+      // A session is open but not saved yet: send them back to it rather than offering a new one.
+      html += '<p class="muted small">In progress</p><p class="lead">' + esc(woSession.dayName || 'Session') + '</p>' +
+        '<button class="btn primary block" data-goto="workouts">Back to session</button>';
+    } else if (todaySessions.length) {
+      html += '<p class="lead">Done today</p>' + todaySessionRows(todaySessions, 'tw-continue');
     } else {
       const next = nextProgramDay(program, sessions);
       if (next) {

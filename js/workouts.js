@@ -159,6 +159,29 @@ function restoreSessionDraft() {
   return true;
 }
 
+/* True while a session is open on screen (new or reopened), saved or not. */
+function sessionInProgress() {
+  return woView === 'session' && woSession != null;
+}
+
+/* Reopen a session saved today so you can add to it or fix it. Saving again updates
+   the same session (it keeps its id), so it never creates a duplicate. Older sessions
+   can still be corrected from History. */
+function continueTodaySession(id) {
+  if (sessionInProgress()) {
+    toast('Save or cancel the session you have open first');
+    return Promise.resolve(false);
+  }
+  return dbGet('sessions', id).then(function (s) {
+    if (!s) { toast('That session no longer exists'); return false; }
+    if (s.date !== todayStr()) { toast('Only today’s sessions can be continued'); return false; }
+    woSession = sessionToDraft(s);
+    woView = 'session';
+    saveSessionDraft();
+    return true;
+  });
+}
+
 function initWorkouts() {
   Screens.workouts = renderWorkouts;
   const screen = $('#screen-workouts');
@@ -235,8 +258,14 @@ function handleWorkoutAction(action, btn) {
     });
   } else if (action === 'wo-save-session') {
     saveSession();
+  } else if (action === 'wo-continue') {
+    continueTodaySession(Number(btn.getAttribute('data-id'))).then(function (ok) { if (ok) renderWorkouts(); });
   } else if (action === 'wo-cancel-session') {
-    appConfirm('Discard this session? Logged values will be lost.', { danger: true, okLabel: 'Discard' })
+    // A reopened session is already saved, so cancelling only drops the changes made since.
+    const msg = woSession && woSession.id != null
+      ? 'Discard your changes? The saved session stays as it was.'
+      : 'Discard this session? Logged values will be lost.';
+    appConfirm(msg, { danger: true, okLabel: 'Discard' })
       .then(function (ok) { if (ok) { clearSessionDraft(); woView = 'home'; woSession = null; renderWorkouts(); } });
   } else if (action === 'wo-add-set') {
     const ex = woSession.exercises[Number(btn.getAttribute('data-ex'))];
@@ -493,6 +522,18 @@ function renderWorkouts() {
   return renderWoHome();
 }
 
+/* One row per session saved today, each with a Continue button (used on Today and Workouts). */
+function todaySessionRows(todaySessions, action) {
+  return todaySessions.map(function (s) {
+    const logged = (s.exercises || []).reduce(function (n, ex) {
+      return n + (ex.sets || []).filter(function (st) { return st.weight != null || st.reps != null; }).length;
+    }, 0);
+    return '<div class="entry-head"><div><strong>' + esc(s.dayName || 'Session') + '</strong>' +
+      '<div class="muted small">' + logged + (logged === 1 ? ' set' : ' sets') + ' logged</div></div>' +
+      '<button class="btn small" data-action="' + action + '" data-id="' + s.id + '">Continue</button></div>';
+  }).join('');
+}
+
 function renderWoHome() {
   return Promise.all([dbGet('program', 'program'), dbGetAll('sessions')]).then(function (res) {
     const program = res[0] || { days: [] };
@@ -502,8 +543,7 @@ function renderWoHome() {
 
     let html = '';
     if (todaySessions.length) {
-      html += '<div class="card"><div class="card-head"><h2>Today</h2></div><p class="lead">Done: ' +
-        todaySessions.map(function (s) { return esc(s.dayName || 'Session'); }).join(', ') + '</p></div>';
+      html += '<div class="card"><div class="card-head"><h2>Done today</h2></div>' + todaySessionRows(todaySessions, 'wo-continue') + '</div>';
     }
 
     if (!program.days.length) {
@@ -588,6 +628,9 @@ function renderWoSession() {
     const s = woSession;
     let html = '<div class="screen-subhead"><h3>' + esc(s.dayName || 'Session') + '</h3>' +
       '<button class="btn small ghost" data-action="wo-cancel-session">Cancel</button></div>';
+    if (s.id != null) {
+      html += '<p class="muted small">Editing a saved session. Tap <b>Save session</b> to keep your changes.</p>';
+    }
     html += '<div class="card"><label>Session date<input type="date" id="ws-date" value="' + esc(s.date) + '"></label>' +
       '<p class="muted small mt0">Faint numbers are today’s suggestion: one more rep than last time, or a small weight jump once every set hit the top of the range.</p></div>';
 

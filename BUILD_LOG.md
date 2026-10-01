@@ -92,6 +92,15 @@ User feedback: app felt "cheap / vibe coded". Full visual redesign, still vanill
 - Cache bumped to `fittrack-v15`.
 - Verified in headless Chromium: log sets, close page without saving, reopen → all values, extra set and note restored; save → reopen lands on Today; discard clears draft; corrupt draft ignored; 0 console errors.
 
+## Continue today's session (2026-10-01)
+
+- Sessions saved **today** get a **Continue** button on the Today card and on Workouts ("Done today", with how many sets were logged). It reopens the session with everything filled in; **Save session** updates the same session (keeps its id), so no duplicates. Auto-save covers a reopened session too.
+- Only today's sessions can be continued (checked in `continueTodaySession`, not just hidden in the UI). Older sessions can still be corrected via History → Edit.
+- **Cancel** on a reopened session says "Discard your changes? The saved session stays as it was." and leaves the saved copy untouched.
+- Guard: while a session is open, the Today card shows "In progress → Back to session" instead of Start/Continue, so an unsaved workout can't be overwritten from the Today tab.
+- Cache bumped to `fittrack-v16`.
+- Verified in headless Chromium: save 2 sets → Continue from Today → add a 3rd → force-close → restored → save → still 1 session with 3 sets; cancel keeps saved values; yesterday's session refused; 0 console errors.
+
 ## Skipped / known limitations
 
 - Nothing from Layers 1–3 was skipped — progress photos made it in (with automatic downscaling to keep IndexedDB small).
