@@ -220,6 +220,8 @@ function eraseAllData() {
     dbClear('nutrition'), dbClear('sessions'), dbClear('notes'), dbClear('photos'), dbClear('program')
   ]).then(function () {
     localStorage.removeItem('fittrack.targets');
+    clearSessionDraft();
+    woView = 'home'; woSession = null;
     return dbPut('program', defaultProgram()); // keep the blank starter template
   });
 }

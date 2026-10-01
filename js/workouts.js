@@ -125,6 +125,40 @@ let woSession = null;       // draft session while logging (string values in inp
 let woDraft = null;         // program draft while editing
 let woShowAllHistory = false;
 
+/* ---------- auto-save of the session being logged ----------
+   Every change to the open session is copied to localStorage straight away, so if the
+   app is closed or killed mid-workout the next launch puts you back where you were.
+   localStorage (not IndexedDB) because it writes instantly with no async gap to lose.
+   The draft is removed once the session is saved or discarded. */
+const SESSION_DRAFT_KEY = 'fittrack.sessionDraft';
+
+function saveSessionDraft() {
+  if (!woSession) return;
+  try {
+    localStorage.setItem(SESSION_DRAFT_KEY, JSON.stringify({ savedAt: Date.now(), session: woSession }));
+  } catch (e) {
+    console.warn('Could not auto-save session', e);
+  }
+}
+
+function clearSessionDraft() {
+  try { localStorage.removeItem(SESSION_DRAFT_KEY); } catch (e) { /* nothing to clear */ }
+}
+
+/* Called once at boot. Reopens an unsaved session if there is one; returns true if it did. */
+function restoreSessionDraft() {
+  let draft;
+  try { draft = JSON.parse(localStorage.getItem(SESSION_DRAFT_KEY) || 'null'); } catch (e) { draft = null; }
+  const s = draft && draft.session;
+  const valid = s && Array.isArray(s.exercises) && s.exercises.every(function (ex) {
+    return ex && Array.isArray(ex.sets) && ex.sets.length;
+  });
+  if (!valid) { clearSessionDraft(); return false; }
+  woSession = s;
+  woView = 'session';
+  return true;
+}
+
 function initWorkouts() {
   Screens.workouts = renderWorkouts;
   const screen = $('#screen-workouts');
@@ -152,8 +186,10 @@ function initWorkouts() {
           if (row) row.classList.toggle('filled', parseNum(ex.sets[setIdx].weight) != null && parseNum(ex.sets[setIdx].reps) != null);
         }
       }
+      saveSessionDraft();
     } else if (woView === 'session' && woSession && t.id === 'ws-date') {
       woSession.date = t.value || todayStr();
+      saveSessionDraft();
     } else if (woView === 'edit' && woDraft && t.hasAttribute('data-day')) {
       const day = woDraft.days[Number(t.getAttribute('data-day'))];
       if (!day) return;
@@ -201,13 +237,13 @@ function handleWorkoutAction(action, btn) {
     saveSession();
   } else if (action === 'wo-cancel-session') {
     appConfirm('Discard this session? Logged values will be lost.', { danger: true, okLabel: 'Discard' })
-      .then(function (ok) { if (ok) { woView = 'home'; woSession = null; renderWorkouts(); } });
+      .then(function (ok) { if (ok) { clearSessionDraft(); woView = 'home'; woSession = null; renderWorkouts(); } });
   } else if (action === 'wo-add-set') {
     const ex = woSession.exercises[Number(btn.getAttribute('data-ex'))];
-    if (ex) { ex.sets.push({ weight: '', rir: '' }); renderWorkouts(); }
+    if (ex) { ex.sets.push({ weight: '', reps: '' }); saveSessionDraft(); renderWorkouts(); }
   } else if (action === 'wo-del-set') {
     const ex = woSession.exercises[Number(btn.getAttribute('data-ex'))];
-    if (ex && ex.sets.length > 1) { ex.sets.splice(Number(btn.getAttribute('data-set')), 1); renderWorkouts(); }
+    if (ex && ex.sets.length > 1) { ex.sets.splice(Number(btn.getAttribute('data-set')), 1); saveSessionDraft(); renderWorkouts(); }
   } else if (action === 'wo-ex-history') {
     showExerciseHistory(btn.getAttribute('data-name'));
   } else if (action === 'wo-view-session') {
@@ -215,6 +251,7 @@ function handleWorkoutAction(action, btn) {
       if (!s) return;
       woSession = sessionToDraft(s);
       woView = 'session';
+      saveSessionDraft();
       renderWorkouts();
     });
   } else if (action === 'wo-del-session') {
@@ -298,6 +335,7 @@ function startSession(dayId) {
       })
     };
     woView = 'session';
+    saveSessionDraft();
     return renderWorkouts();
   });
 }
@@ -343,11 +381,16 @@ function saveSession() {
     })
   };
   if (woSession.id != null) record.id = woSession.id;
+  // The auto-saved draft is only cleared once the real save has succeeded.
   dbPut('sessions', record).then(function () {
+    clearSessionDraft();
     toast('Session saved');
     woView = 'home';
     woSession = null;
     renderWorkouts();
+  }).catch(function (err) {
+    console.error(err);
+    toast('Save failed, your sets are still here. Try again.');
   });
 }
 

@@ -84,6 +84,14 @@ User feedback: app felt "cheap / vibe coded". Full visual redesign, still vanill
 - **SW precache bug fixed**: `cache.addAll` was fetching through the HTTP cache, so a new service worker could precache *stale* files (this bit us: v4 precached the old JS). Precache requests now use `cache: 'reload'`. Cache bumped to `fittrack-v5`.
 - Verified end-to-end (set goal → Today line → chart line → clear goal removes all traces → goal round-trips in Settings); test data removed after.
 
+## Workout auto-save (2026-10-01)
+
+- The session being logged is copied to `localStorage` (`fittrack.sessionDraft`) on every change: typing a weight/reps/note, changing the date, adding or removing a set. If the app is closed mid-workout, the next launch opens straight back into that session with a "Restored your unsaved workout" toast.
+- The draft is cleared only after **Save session** succeeds (a failed save now shows an error and keeps your sets), on **Cancel → Discard**, and on **Erase all data**. A corrupt or malformed draft is ignored and removed, never crashes boot.
+- Small fix along the way: **+ Add set** created `{weight, rir}` instead of `{weight, reps}`.
+- Cache bumped to `fittrack-v15`.
+- Verified in headless Chromium: log sets, close page without saving, reopen → all values, extra set and note restored; save → reopen lands on Today; discard clears draft; corrupt draft ignored; 0 console errors.
+
 ## Skipped / known limitations
 
 - Nothing from Layers 1–3 was skipped — progress photos made it in (with automatic downscaling to keep IndexedDB small).

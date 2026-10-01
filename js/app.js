@@ -182,7 +182,13 @@ document.addEventListener('DOMContentLoaded', function () {
       initWorkouts();
       initProgress();
       initSettings();
-      showScreen('today');
+      // Unsaved workout from last time (app was closed mid-session)? Go straight back to it.
+      if (restoreSessionDraft()) {
+        showScreen('workouts');
+        toast('Restored your unsaved workout');
+      } else {
+        showScreen('today');
+      }
     });
 
   // Ask the browser not to evict our storage under pressure (granted silently where supported).
