@@ -110,6 +110,16 @@ User feedback: app felt "cheap / vibe coded". Full visual redesign, still vanill
 - Cache bumped to `fittrack-v17`.
 - Verified in headless Chromium: 23 checks with angles interleaved across dates (buttons, keys, swipes, Side jumping across a year, single-photo angle, delete fallbacks, other angles untouched, no URL leaks), 0 console errors.
 
+### Two directions: swipe = angle, buttons = date (2026-10-12, user request)
+
+- **Newer / Older buttons**: same angle, different date. Counter shows the angle's timeline ("2 of 5 front photos").
+- **Swipe, angle tabs, Left/Right keys**: same date, different angle, always in Front, Side, Back order regardless of save order. No wrap-around at the ends.
+- Tabs appear above the buttons only when that date has more than one photo, so the swipe is discoverable. A same-day retake gets numbered tabs ("Front 1", "Front 2").
+- Viewer state is now `{ photos, id, url }`: its own copy of `[{id, type, date}]` plus the current photo; timeline and day set are worked out from that on demand.
+- Delete in the viewer shows: older of this angle, else newer of this angle, else another angle from that day, else closes.
+- Cache bumped to `fittrack-v18`.
+- Verified in headless Chromium: 38 checks (angles saved out of order, retake, single-photo dates, swipes/tabs/keys vs buttons, rapid mixed moves, all delete fallbacks, angle-less old photo, URL leaks), 0 console errors.
+
 ## Skipped / known limitations
 
 - Nothing from Layers 1–3 was skipped — progress photos made it in (with automatic downscaling to keep IndexedDB small).

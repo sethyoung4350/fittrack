@@ -8,8 +8,8 @@ let prWeightShowAll = false;
 let prExKey = null;           // selected exercise (exKey)
 let prExMetric = null;
 let prExRange = 'all';
-let prPhotoOrder = [];        // [{id, type}] in the same order as the grid (newest first)
-let prViewer = null;          // { ids, index, url } while the full-screen viewer is open; ids = that angle's photos
+let prPhotoOrder = [];        // [{id, type, date}] in the same order as the grid (newest first)
+let prViewer = null;          // { photos, id, url } while the full-screen viewer is open
 
 /* ---------- exercise data ---------- */
 
@@ -253,7 +253,12 @@ function addProgressPhoto(file) {
   });
 }
 
-/* ---------- photo viewer (full screen; swipe, buttons or arrow keys to step newer/older) ---------- */
+/* ---------- photo viewer (full screen) ----------
+   Two directions:
+   - Newer / Older buttons = same angle, a different date (how has my Front changed?)
+   - Swipe, angle tabs, Left/Right keys = same date, a different angle (Front, Side, Back of one shoot) */
+
+const PHOTO_ANGLES = ['Front', 'Side', 'Back']; // order the angles appear in when swiping
 
 function initPhotoViewer() {
   const root = $('#photoViewer');
@@ -263,12 +268,13 @@ function initPhotoViewer() {
     if (!btn) return;
     const act = btn.getAttribute('data-viewer');
     if (act === 'close') closePhotoViewer();
-    else if (act === 'newer') stepPhotoViewer(-1);
-    else if (act === 'older') stepPhotoViewer(1);
+    else if (act === 'newer') stepViewerTime(-1);
+    else if (act === 'older') stepViewerTime(1);
+    else if (act === 'angle') goToViewerPhoto(Number(btn.getAttribute('data-id')));
     else if (act === 'delete') deleteViewerPhoto();
   });
 
-  // Swipe left = older, swipe right = newer. Two-finger touches are pinch-zoom, not a swipe.
+  // Swipe left = next angle, swipe right = previous angle. Two-finger touches are pinch-zoom, not a swipe.
   let startX = null, startY = null;
   root.addEventListener('touchstart', function (e) {
     if (e.touches.length === 1) { startX = e.touches[0].clientX; startY = e.touches[0].clientY; }
@@ -279,23 +285,21 @@ function initPhotoViewer() {
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
     startX = null;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepPhotoViewer(dx < 0 ? 1 : -1);
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepViewerAngle(dx < 0 ? 1 : -1);
   });
 
   document.addEventListener('keydown', function (e) {
     if (!prViewer || $('#modalRoot').innerHTML) return; // let the delete confirm have the keyboard
     if (e.key === 'Escape') closePhotoViewer();
-    else if (e.key === 'ArrowLeft') stepPhotoViewer(-1);
-    else if (e.key === 'ArrowRight') stepPhotoViewer(1);
+    else if (e.key === 'ArrowLeft') stepViewerAngle(-1);
+    else if (e.key === 'ArrowRight') stepViewerAngle(1);
   });
 }
 
 function openPhotoViewer(id) {
-  const tapped = prPhotoOrder.find(function (x) { return x.id === id; });
-  if (!tapped) return;
-  // Newer/Older only step through photos of the same angle (Front with Front, etc.).
-  const ids = prPhotoOrder.filter(function (x) { return x.type === tapped.type; }).map(function (x) { return x.id; });
-  prViewer = { ids: ids, index: ids.indexOf(id), url: null };
+  if (!prPhotoOrder.some(function (x) { return x.id === id; })) return;
+  // The viewer keeps its own copy so the grid re-rendering behind it can't shift what it shows.
+  prViewer = { photos: prPhotoOrder.slice(), id: id, url: null };
   $('#photoViewer').hidden = false;
   document.body.classList.add('no-scroll');
   showViewerPhoto();
@@ -311,62 +315,107 @@ function closePhotoViewer() {
   document.body.classList.remove('no-scroll');
 }
 
-function stepPhotoViewer(delta) {
-  if (!prViewer) return;
-  const next = prViewer.index + delta;
-  if (next < 0 || next >= prViewer.ids.length) return;
-  prViewer.index = next;
+function viewerCurrent() {
+  return prViewer.photos.find(function (x) { return x.id === prViewer.id; });
+}
+
+/* Same angle as the current photo, every date, newest first (the grid's order). */
+function viewerTimeline() {
+  const cur = viewerCurrent();
+  return prViewer.photos.filter(function (x) { return x.type === cur.type; });
+}
+
+/* Same date as the current photo, every angle, in Front / Side / Back order. */
+function viewerDaySet() {
+  const cur = viewerCurrent();
+  const rank = function (t) { const i = PHOTO_ANGLES.indexOf(t); return i === -1 ? PHOTO_ANGLES.length : i; };
+  return prViewer.photos.filter(function (x) { return x.date === cur.date; })
+    .sort(function (a, b) { return rank(a.type) - rank(b.type) || a.id - b.id; });
+}
+
+function stepInList(list, delta) {
+  const i = list.findIndex(function (x) { return x.id === prViewer.id; });
+  const next = list[i + delta];
+  if (next) goToViewerPhoto(next.id);
+}
+
+function stepViewerTime(delta) { if (prViewer) stepInList(viewerTimeline(), delta); }
+function stepViewerAngle(delta) { if (prViewer) stepInList(viewerDaySet(), delta); }
+
+function goToViewerPhoto(id) {
+  if (!prViewer || id === prViewer.id) return;
+  prViewer.id = id;
   showViewerPhoto();
 }
 
 function showViewerPhoto() {
-  const index = prViewer.index;
-  dbGet('photos', prViewer.ids[index]).then(function (p) {
-    if (!prViewer || prViewer.index !== index) return; // closed, or moved on while this was loading
+  const id = prViewer.id;
+  dbGet('photos', id).then(function (p) {
+    if (!prViewer || prViewer.id !== id) return; // closed, or moved on while this was loading
     if (prViewer.url) { URL.revokeObjectURL(prViewer.url); prViewer.url = null; }
 
+    const cur = viewerCurrent();
     let picture = '<p class="viewer-missing">This photo could not be loaded.</p>';
-    let title = 'Photo';
     if (p && p.blob) {
       prViewer.url = URL.createObjectURL(p.blob);
-      picture = '<img src="' + prViewer.url + '" alt="' + esc(p.type) + ' photo">';
+      picture = '<img src="' + prViewer.url + '" alt="' + esc(cur.type) + ' photo">';
     }
-    if (p) {
-      const d = new Date(p.date + 'T12:00:00');
-      const longDate = isNaN(d) ? p.date
-        : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-      title = esc(p.type || 'Photo') + ' · ' + esc(longDate);
+    const d = new Date(cur.date + 'T12:00:00');
+    const longDate = isNaN(d) ? cur.date
+      : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+    // Time axis: where this photo sits among the same angle's photos.
+    const timeline = viewerTimeline();
+    const t = timeline.findIndex(function (x) { return x.id === id; });
+    const angleWord = cur.type ? String(cur.type).toLowerCase() + ' ' : '';
+    const count = (t + 1) + ' of ' + timeline.length + ' ' + angleWord + (timeline.length === 1 ? 'photo' : 'photos');
+
+    // Angle axis: one tab per photo taken that day. A retake of the same angle gets a number.
+    const day = viewerDaySet();
+    let tabs = '';
+    if (day.length > 1) {
+      const seen = {};
+      tabs = '<div class="viewer-angles" role="group" aria-label="Angles from this date">' + day.map(function (x) {
+        const label = x.type || 'Photo';
+        const same = day.filter(function (y) { return y.type === x.type; }).length;
+        seen[label] = (seen[label] || 0) + 1;
+        const text = same > 1 ? label + ' ' + seen[label] : label;
+        return '<button class="viewer-angle' + (x.id === id ? ' on' : '') + '" data-viewer="angle" data-id="' + x.id + '"' +
+          ' aria-pressed="' + (x.id === id) + '">' + esc(text) + '</button>';
+      }).join('') + '</div>';
     }
-    const total = prViewer.ids.length;
-    const angle = p && p.type ? String(p.type).toLowerCase() + ' ' : '';
 
     const root = $('#photoViewer');
     root.innerHTML =
       '<div class="viewer-top">' +
-      '<div><div class="viewer-title">' + title + '</div><div class="viewer-count">' + (index + 1) + ' of ' + total + ' ' + esc(angle) + (total === 1 ? 'photo' : 'photos') + '</div></div>' +
+      '<div><div class="viewer-title">' + esc(cur.type || 'Photo') + ' · ' + esc(longDate) + '</div>' +
+      '<div class="viewer-count">' + esc(count) + '</div></div>' +
       '<button class="viewer-btn" data-viewer="close" aria-label="Close photo">×</button></div>' +
       '<div class="viewer-stage">' + picture + '</div>' +
+      tabs +
       '<div class="viewer-bottom">' +
-      '<button class="viewer-btn" data-viewer="newer"' + (index === 0 ? ' disabled' : '') + '>‹ Newer</button>' +
+      '<button class="viewer-btn" data-viewer="newer"' + (t === 0 ? ' disabled' : '') + '>‹ Newer</button>' +
       '<button class="viewer-btn danger" data-viewer="delete">Delete</button>' +
-      '<button class="viewer-btn" data-viewer="older"' + (index === total - 1 ? ' disabled' : '') + '>Older ›</button>' +
+      '<button class="viewer-btn" data-viewer="older"' + (t === timeline.length - 1 ? ' disabled' : '') + '>Older ›</button>' +
       '</div>';
     root.querySelector('[data-viewer="close"]').focus();
   });
 }
 
 function deleteViewerPhoto() {
-  const id = prViewer.ids[prViewer.index];
+  const id = prViewer.id;
   appConfirm('Delete this photo?', { danger: true, okLabel: 'Delete' }).then(function (ok) {
     if (!ok || !prViewer) return;
     dbDelete('photos', id).then(function () {
       toast('Photo deleted');
-      prViewer.ids = prViewer.ids.filter(function (x) { return x !== id; });
-      if (!prViewer.ids.length) closePhotoViewer(); // no photos of this angle left
-      else {
-        prViewer.index = Math.min(prViewer.index, prViewer.ids.length - 1); // next older of this angle, else next newer
-        showViewerPhoto();
-      }
+      // Show what's next to it: older of this angle, else newer of this angle, else another angle from that day.
+      const timeline = viewerTimeline(), day = viewerDaySet();
+      const t = timeline.findIndex(function (x) { return x.id === id; });
+      const a = day.findIndex(function (x) { return x.id === id; });
+      const next = timeline[t + 1] || timeline[t - 1] || day[a + 1] || day[a - 1];
+      prViewer.photos = prViewer.photos.filter(function (x) { return x.id !== id; });
+      if (next) { prViewer.id = next.id; showViewerPhoto(); }
+      else closePhotoViewer();
       renderProgress();
     });
   });
@@ -447,7 +496,7 @@ function renderProgress() {
         byDate[d].forEach(function (p) {
           const u = URL.createObjectURL(p.blob);
           prObjectUrls.push(u);
-          prPhotoOrder.push({ id: p.id, type: p.type });
+          prPhotoOrder.push({ id: p.id, type: p.type, date: p.date });
           html += '<div class="photo-item">' +
             '<button class="photo-open" data-action="pr-view-photo" data-id="' + p.id + '" aria-label="View ' + esc(p.type) + ' photo from ' + esc(niceDate(d)) + '">' +
             '<img src="' + u + '" alt=""></button>' +
