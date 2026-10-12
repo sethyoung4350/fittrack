@@ -101,6 +101,15 @@ User feedback: app felt "cheap / vibe coded". Full visual redesign, still vanill
 - Cache bumped to `fittrack-v16`.
 - Verified in headless Chromium at iPhone size: 39 checks (open, order, buttons, keys, swipes, rapid stepping, cancel/confirm delete, delete-last, thumbnail × still works, scroll lock, URL leaks, portrait + landscape fit, light + dark), 0 console errors. Test photos removed after.
 
+### Same-angle stepping (2026-10-12, user request)
+
+- Newer/Older, swipes and arrow keys now step only through photos of the **same angle** as the one you tapped, so Front compares with Front. Counter reads e.g. "2 of 5 front photos". To view another angle, close and tap one of those.
+- The viewer keeps its own list of that angle's photo ids (`prViewer.ids`), so the grid re-rendering behind it after a delete cannot shift it.
+- Delete in the viewer shows the next older photo of that angle, else the next newer, and closes when that angle is empty. Other angles are untouched.
+- Old photos with no saved angle open on their own ("1 of 1 photo") instead of crashing.
+- Cache bumped to `fittrack-v17`.
+- Verified in headless Chromium: 23 checks with angles interleaved across dates (buttons, keys, swipes, Side jumping across a year, single-photo angle, delete fallbacks, other angles untouched, no URL leaks), 0 console errors.
+
 ## Skipped / known limitations
 
 - Nothing from Layers 1–3 was skipped — progress photos made it in (with automatic downscaling to keep IndexedDB small).

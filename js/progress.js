@@ -8,8 +8,8 @@ let prWeightShowAll = false;
 let prExKey = null;           // selected exercise (exKey)
 let prExMetric = null;
 let prExRange = 'all';
-let prPhotoOrder = [];        // photo ids in the same order as the grid; the viewer steps through these
-let prViewer = null;          // { index, url } while the full-screen photo viewer is open
+let prPhotoOrder = [];        // [{id, type}] in the same order as the grid (newest first)
+let prViewer = null;          // { ids, index, url } while the full-screen viewer is open; ids = that angle's photos
 
 /* ---------- exercise data ---------- */
 
@@ -291,9 +291,11 @@ function initPhotoViewer() {
 }
 
 function openPhotoViewer(id) {
-  const index = prPhotoOrder.indexOf(id);
-  if (index === -1) return;
-  prViewer = { index: index, url: null };
+  const tapped = prPhotoOrder.find(function (x) { return x.id === id; });
+  if (!tapped) return;
+  // Newer/Older only step through photos of the same angle (Front with Front, etc.).
+  const ids = prPhotoOrder.filter(function (x) { return x.type === tapped.type; }).map(function (x) { return x.id; });
+  prViewer = { ids: ids, index: ids.indexOf(id), url: null };
   $('#photoViewer').hidden = false;
   document.body.classList.add('no-scroll');
   showViewerPhoto();
@@ -312,14 +314,14 @@ function closePhotoViewer() {
 function stepPhotoViewer(delta) {
   if (!prViewer) return;
   const next = prViewer.index + delta;
-  if (next < 0 || next >= prPhotoOrder.length) return;
+  if (next < 0 || next >= prViewer.ids.length) return;
   prViewer.index = next;
   showViewerPhoto();
 }
 
 function showViewerPhoto() {
   const index = prViewer.index;
-  dbGet('photos', prPhotoOrder[index]).then(function (p) {
+  dbGet('photos', prViewer.ids[index]).then(function (p) {
     if (!prViewer || prViewer.index !== index) return; // closed, or moved on while this was loading
     if (prViewer.url) { URL.revokeObjectURL(prViewer.url); prViewer.url = null; }
 
@@ -335,12 +337,13 @@ function showViewerPhoto() {
         : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
       title = esc(p.type || 'Photo') + ' · ' + esc(longDate);
     }
-    const total = prPhotoOrder.length;
+    const total = prViewer.ids.length;
+    const angle = p && p.type ? String(p.type).toLowerCase() + ' ' : '';
 
     const root = $('#photoViewer');
     root.innerHTML =
       '<div class="viewer-top">' +
-      '<div><div class="viewer-title">' + title + '</div><div class="viewer-count">' + (index + 1) + ' of ' + total + '</div></div>' +
+      '<div><div class="viewer-title">' + title + '</div><div class="viewer-count">' + (index + 1) + ' of ' + total + ' ' + esc(angle) + (total === 1 ? 'photo' : 'photos') + '</div></div>' +
       '<button class="viewer-btn" data-viewer="close" aria-label="Close photo">×</button></div>' +
       '<div class="viewer-stage">' + picture + '</div>' +
       '<div class="viewer-bottom">' +
@@ -353,15 +356,15 @@ function showViewerPhoto() {
 }
 
 function deleteViewerPhoto() {
-  const id = prPhotoOrder[prViewer.index];
+  const id = prViewer.ids[prViewer.index];
   appConfirm('Delete this photo?', { danger: true, okLabel: 'Delete' }).then(function (ok) {
     if (!ok || !prViewer) return;
     dbDelete('photos', id).then(function () {
       toast('Photo deleted');
-      prPhotoOrder = prPhotoOrder.filter(function (x) { return x !== id; });
-      if (!prPhotoOrder.length) closePhotoViewer();
+      prViewer.ids = prViewer.ids.filter(function (x) { return x !== id; });
+      if (!prViewer.ids.length) closePhotoViewer(); // no photos of this angle left
       else {
-        prViewer.index = Math.min(prViewer.index, prPhotoOrder.length - 1); // stay put = show the next older one
+        prViewer.index = Math.min(prViewer.index, prViewer.ids.length - 1); // next older of this angle, else next newer
         showViewerPhoto();
       }
       renderProgress();
@@ -444,7 +447,7 @@ function renderProgress() {
         byDate[d].forEach(function (p) {
           const u = URL.createObjectURL(p.blob);
           prObjectUrls.push(u);
-          prPhotoOrder.push(p.id);
+          prPhotoOrder.push({ id: p.id, type: p.type });
           html += '<div class="photo-item">' +
             '<button class="photo-open" data-action="pr-view-photo" data-id="' + p.id + '" aria-label="View ' + esc(p.type) + ' photo from ' + esc(niceDate(d)) + '">' +
             '<img src="' + u + '" alt=""></button>' +

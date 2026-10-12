@@ -42,7 +42,7 @@ The app needs to be reachable from your iPhone over HTTP(S) **once**, to install
 
 - **Today** — log today's weight, an interactive weight graph (drag across it to read any day; 1M/3M/6M/All), and your next or completed workout.
 - **Workouts** — your program. Tap **Start session** on a day and enter weight and reps per set (last session's numbers are shown so you know what to beat). Tap any exercise to see its history graph. **Edit program** changes exercises, sets, reps, rest and supersets.
-- **Progress** — weight graph and full weight log (add past days, delete mistakes), per-exercise graphs (top set, estimated 1RM, volume or reps), photos and notes. Tap a photo to see it full screen, then swipe (or tap Newer / Older) to flick through all your photos in date order. Exercises with the same name are linked, ignoring capitals and extra spaces.
+- **Progress** — weight graph and full weight log (add past days, delete mistakes), per-exercise graphs (top set, estimated 1RM, volume or reps), photos and notes. Tap a photo to see it full screen, then swipe (or tap Newer / Older) to flick through your other photos of the same angle (Front with Front, Side with Side) in date order. Exercises with the same name are linked, ignoring capitals and extra spaces.
 - **Settings** — goal weight, backup and erase.
 
 ## Backup & Restore
