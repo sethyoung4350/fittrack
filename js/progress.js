@@ -8,6 +8,8 @@ let prWeightShowAll = false;
 let prExKey = null;           // selected exercise (exKey)
 let prExMetric = null;
 let prExRange = 'all';
+let prPhotoOrder = [];        // photo ids in the same order as the grid; the viewer steps through these
+let prViewer = null;          // { index, url } while the full-screen photo viewer is open
 
 /* ---------- exercise data ---------- */
 
@@ -185,6 +187,8 @@ function initProgress() {
     } else if (action === 'pr-add-photo') {
       const fileInput = $('#pr-photo-file');
       if (fileInput) fileInput.click();
+    } else if (action === 'pr-view-photo') {
+      openPhotoViewer(Number(btn.getAttribute('data-id')));
     } else if (action === 'pr-del-photo') {
       const id = Number(btn.getAttribute('data-id'));
       appConfirm('Delete this photo?', { danger: true, okLabel: 'Delete' }).then(function (ok) {
@@ -201,6 +205,8 @@ function initProgress() {
       renderProgress();
     }
   });
+
+  initPhotoViewer();
 }
 
 /* ---------- photos ---------- */
@@ -244,6 +250,122 @@ function addProgressPhoto(file) {
   }).catch(function (err) {
     console.error(err);
     toast('Could not save photo');
+  });
+}
+
+/* ---------- photo viewer (full screen; swipe, buttons or arrow keys to step newer/older) ---------- */
+
+function initPhotoViewer() {
+  const root = $('#photoViewer');
+
+  root.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-viewer]');
+    if (!btn) return;
+    const act = btn.getAttribute('data-viewer');
+    if (act === 'close') closePhotoViewer();
+    else if (act === 'newer') stepPhotoViewer(-1);
+    else if (act === 'older') stepPhotoViewer(1);
+    else if (act === 'delete') deleteViewerPhoto();
+  });
+
+  // Swipe left = older, swipe right = newer. Two-finger touches are pinch-zoom, not a swipe.
+  let startX = null, startY = null;
+  root.addEventListener('touchstart', function (e) {
+    if (e.touches.length === 1) { startX = e.touches[0].clientX; startY = e.touches[0].clientY; }
+    else startX = null;
+  }, { passive: true });
+  root.addEventListener('touchend', function (e) {
+    if (startX == null || !e.changedTouches.length) return;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    startX = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepPhotoViewer(dx < 0 ? 1 : -1);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (!prViewer || $('#modalRoot').innerHTML) return; // let the delete confirm have the keyboard
+    if (e.key === 'Escape') closePhotoViewer();
+    else if (e.key === 'ArrowLeft') stepPhotoViewer(-1);
+    else if (e.key === 'ArrowRight') stepPhotoViewer(1);
+  });
+}
+
+function openPhotoViewer(id) {
+  const index = prPhotoOrder.indexOf(id);
+  if (index === -1) return;
+  prViewer = { index: index, url: null };
+  $('#photoViewer').hidden = false;
+  document.body.classList.add('no-scroll');
+  showViewerPhoto();
+}
+
+function closePhotoViewer() {
+  if (!prViewer) return;
+  if (prViewer.url) URL.revokeObjectURL(prViewer.url);
+  prViewer = null;
+  const root = $('#photoViewer');
+  root.hidden = true;
+  root.innerHTML = '';
+  document.body.classList.remove('no-scroll');
+}
+
+function stepPhotoViewer(delta) {
+  if (!prViewer) return;
+  const next = prViewer.index + delta;
+  if (next < 0 || next >= prPhotoOrder.length) return;
+  prViewer.index = next;
+  showViewerPhoto();
+}
+
+function showViewerPhoto() {
+  const index = prViewer.index;
+  dbGet('photos', prPhotoOrder[index]).then(function (p) {
+    if (!prViewer || prViewer.index !== index) return; // closed, or moved on while this was loading
+    if (prViewer.url) { URL.revokeObjectURL(prViewer.url); prViewer.url = null; }
+
+    let picture = '<p class="viewer-missing">This photo could not be loaded.</p>';
+    let title = 'Photo';
+    if (p && p.blob) {
+      prViewer.url = URL.createObjectURL(p.blob);
+      picture = '<img src="' + prViewer.url + '" alt="' + esc(p.type) + ' photo">';
+    }
+    if (p) {
+      const d = new Date(p.date + 'T12:00:00');
+      const longDate = isNaN(d) ? p.date
+        : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+      title = esc(p.type || 'Photo') + ' · ' + esc(longDate);
+    }
+    const total = prPhotoOrder.length;
+
+    const root = $('#photoViewer');
+    root.innerHTML =
+      '<div class="viewer-top">' +
+      '<div><div class="viewer-title">' + title + '</div><div class="viewer-count">' + (index + 1) + ' of ' + total + '</div></div>' +
+      '<button class="viewer-btn" data-viewer="close" aria-label="Close photo">×</button></div>' +
+      '<div class="viewer-stage">' + picture + '</div>' +
+      '<div class="viewer-bottom">' +
+      '<button class="viewer-btn" data-viewer="newer"' + (index === 0 ? ' disabled' : '') + '>‹ Newer</button>' +
+      '<button class="viewer-btn danger" data-viewer="delete">Delete</button>' +
+      '<button class="viewer-btn" data-viewer="older"' + (index === total - 1 ? ' disabled' : '') + '>Older ›</button>' +
+      '</div>';
+    root.querySelector('[data-viewer="close"]').focus();
+  });
+}
+
+function deleteViewerPhoto() {
+  const id = prPhotoOrder[prViewer.index];
+  appConfirm('Delete this photo?', { danger: true, okLabel: 'Delete' }).then(function (ok) {
+    if (!ok || !prViewer) return;
+    dbDelete('photos', id).then(function () {
+      toast('Photo deleted');
+      prPhotoOrder = prPhotoOrder.filter(function (x) { return x !== id; });
+      if (!prPhotoOrder.length) closePhotoViewer();
+      else {
+        prViewer.index = Math.min(prViewer.index, prPhotoOrder.length - 1); // stay put = show the next older one
+        showViewerPhoto();
+      }
+      renderProgress();
+    });
   });
 }
 
@@ -313,6 +435,7 @@ function renderProgress() {
       '</div>' +
       '<input type="file" id="pr-photo-file" accept="image/*" hidden>' +
       '<button class="btn block" data-action="pr-add-photo">Add photo</button>';
+    prPhotoOrder = [];
     if (photos.length) {
       const byDate = {};
       photos.forEach(function (p) { (byDate[p.date] = byDate[p.date] || []).push(p); });
@@ -321,7 +444,10 @@ function renderProgress() {
         byDate[d].forEach(function (p) {
           const u = URL.createObjectURL(p.blob);
           prObjectUrls.push(u);
-          html += '<div class="photo-item"><img src="' + u + '" alt="' + esc(p.type) + ' photo">' +
+          prPhotoOrder.push(p.id);
+          html += '<div class="photo-item">' +
+            '<button class="photo-open" data-action="pr-view-photo" data-id="' + p.id + '" aria-label="View ' + esc(p.type) + ' photo from ' + esc(niceDate(d)) + '">' +
+            '<img src="' + u + '" alt=""></button>' +
             '<span class="tag">' + esc(p.type) + '</span>' +
             '<button class="icon-btn del" data-action="pr-del-photo" data-id="' + p.id + '" aria-label="Delete photo">×</button></div>';
         });

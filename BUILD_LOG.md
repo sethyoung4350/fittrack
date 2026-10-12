@@ -92,6 +92,15 @@ User feedback: app felt "cheap / vibe coded". Full visual redesign, still vanill
 - Cache bumped to `fittrack-v15`.
 - Verified in headless Chromium: log sets, close page without saving, reopen → all values, extra set and note restored; save → reopen lands on Today; discard clears draft; corrupt draft ignored; 0 console errors.
 
+## Photo viewer (2026-10-12)
+
+- Tap any progress photo to open it full screen on a black background, uncropped, with its angle and full date (year included). The counter shows where you are ("3 of 12").
+- Step through every photo in the same order as the grid (newest first): swipe left/right, the **‹ Newer / Older ›** buttons, or arrow keys on a computer. Escape or × closes. Small wobbles and vertical drags do not change photo; two-finger touches are left alone for pinch-zoom.
+- **Delete** works from inside the viewer; it then shows the next older photo, and closes when none are left. The confirm appears on top of the viewer (viewer z-index 90, modal 100).
+- Only one full-size image URL is alive while the viewer is open, and it is released on step/close (no memory leak when flicking through many photos).
+- Cache bumped to `fittrack-v16`.
+- Verified in headless Chromium at iPhone size: 39 checks (open, order, buttons, keys, swipes, rapid stepping, cancel/confirm delete, delete-last, thumbnail × still works, scroll lock, URL leaks, portrait + landscape fit, light + dark), 0 console errors. Test photos removed after.
+
 ## Skipped / known limitations
 
 - Nothing from Layers 1–3 was skipped — progress photos made it in (with automatic downscaling to keep IndexedDB small).
